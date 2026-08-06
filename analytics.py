@@ -1,14 +1,39 @@
+def get_transaction_rows(transactions, transaction_type):
+    """Return one transaction type, with support for the legacy category model."""
+    if transactions.empty:
+        return transactions
+
+    if "transaction_type" in transactions.columns:
+        return transactions[
+            transactions["transaction_type"] == transaction_type
+        ]
+
+    if "category" not in transactions.columns:
+        if transaction_type == "Expense":
+            return transactions
+        return transactions.iloc[0:0]
+
+    if transaction_type == "Income":
+        return transactions[transactions["category"] == "Income"]
+
+    if transaction_type == "Expense":
+        return transactions[transactions["category"] != "Income"]
+
+    return transactions.iloc[0:0]
+
+
 def calculate_total_spending(expenses):
-    """Calculate the total amount spent."""
+    """Calculate total expenses, excluding income and transfers."""
     if expenses.empty:
         return 0.0
 
-    return expenses["amount"].sum()
+    expense_rows = get_transaction_rows(expenses, "Expense")
+    return expense_rows["amount"].sum()
 
 
 def calculate_number_of_expenses(expenses):
-    """Count how many expenses are in the data."""
-    return len(expenses)
+    """Count expense transactions in the data."""
+    return len(get_transaction_rows(expenses, "Expense"))
 
 
 def calculate_spending_by_category(expenses):
@@ -16,19 +41,20 @@ def calculate_spending_by_category(expenses):
     if expenses.empty:
         return expenses
 
+    expense_rows = get_transaction_rows(expenses, "Expense")
     return (
-        expenses.groupby("category", as_index=False)["amount"]
+        expense_rows.groupby("category", as_index=False)["amount"]
         .sum()
         .sort_values("amount", ascending=False)
     )
 
 
 def calculate_expense_category_summary(expenses):
-    """Calculate spending by category, excluding income rows."""
+    """Calculate spending by category, excluding income and transfers."""
     if expenses.empty:
         return expenses
 
-    expense_rows = expenses[expenses["category"] != "Income"]
+    expense_rows = get_transaction_rows(expenses, "Expense")
 
     if expense_rows.empty:
         return expense_rows
@@ -41,30 +67,68 @@ def calculate_expense_category_summary(expenses):
 
 
 def calculate_income_summary(expenses):
-    """Calculate income totals grouped by description."""
+    """Calculate income totals grouped by source."""
     if expenses.empty:
         return expenses
 
-    income_rows = expenses[expenses["category"] == "Income"]
+    income_rows = get_transaction_rows(expenses, "Income").copy()
 
     if income_rows.empty:
         return income_rows
 
+    income_rows["source"] = income_rows["category"]
+    legacy_income_rows = income_rows["source"] == "Income"
+    income_rows.loc[legacy_income_rows, "source"] = income_rows.loc[
+        legacy_income_rows, "description"
+    ]
+
     return (
-        income_rows.groupby("description", as_index=False)["amount"]
+        income_rows.groupby("source", as_index=False)["amount"]
+        .sum()
+        .sort_values("amount", ascending=False)
+    )
+
+
+def calculate_transfer_summary(transactions):
+    """Calculate transfer totals grouped by destination account or goal."""
+    if transactions.empty:
+        return transactions
+
+    transfer_rows = get_transaction_rows(transactions, "Transfer").copy()
+
+    if transfer_rows.empty:
+        return transfer_rows
+
+    if "to_account" in transfer_rows.columns:
+        transfer_rows["destination"] = transfer_rows["to_account"].fillna(
+            "Unspecified destination"
+        )
+    else:
+        transfer_rows["destination"] = "Unspecified destination"
+    transfer_rows.loc[transfer_rows["destination"] == "", "destination"] = (
+        "Unspecified destination"
+    )
+
+    return (
+        transfer_rows.groupby("destination", as_index=False)["amount"]
         .sum()
         .sort_values("amount", ascending=False)
     )
 
 
 def calculate_category_summary(expenses):
-    """Calculate category totals, percentages, and expense counts."""
+    """Calculate expense totals, percentages, and counts by category."""
     if expenses.empty:
         return expenses
 
-    total_spending = expenses["amount"].sum()
+    expense_rows = get_transaction_rows(expenses, "Expense")
+
+    if expense_rows.empty:
+        return expense_rows
+
+    total_spending = expense_rows["amount"].sum()
     summary = (
-        expenses.groupby("category", as_index=False)
+        expense_rows.groupby("category", as_index=False)
         .agg(
             amount=("amount", "sum"),
             expenses=("id", "count"),
@@ -99,8 +163,9 @@ def calculate_monthly_spending(expenses, current_date):
         return 0.0
 
     current_month = current_date.strftime("%Y-%m")
-    monthly_expenses = expenses[
-        expenses["expense_date"].str.startswith(current_month)
+    monthly_expenses = get_transaction_rows(expenses, "Expense")
+    monthly_expenses = monthly_expenses[
+        monthly_expenses["expense_date"].str.startswith(current_month)
     ]
 
     return monthly_expenses["amount"].sum()
@@ -138,8 +203,9 @@ def calculate_category_budget_summary(budgets, expenses, current_date):
         return budgets
 
     current_month = current_date.strftime("%Y-%m")
-    monthly_expenses = expenses[
-        expenses["expense_date"].str.startswith(current_month)
+    monthly_expenses = get_transaction_rows(expenses, "Expense")
+    monthly_expenses = monthly_expenses[
+        monthly_expenses["expense_date"].str.startswith(current_month)
     ]
 
     if monthly_expenses.empty:
@@ -199,12 +265,12 @@ def calculate_saved_budget_overview(category_budget_summary):
 
 
 def calculate_budget_remaining_summary(category_budget_summary):
-    """Calculate remaining budget by category for chart display."""
+    """Return every category balance, including over-budget categories."""
     if category_budget_summary.empty:
         return category_budget_summary
 
     remaining_summary = category_budget_summary[
-        category_budget_summary["remaining"] > 0
-    ][["category", "remaining"]].copy()
+        ["category", "remaining", "status"]
+    ].copy()
 
     return remaining_summary.sort_values("remaining", ascending=False)

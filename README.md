@@ -7,15 +7,16 @@ The app is built with Python, Streamlit, SQLite, pandas, and Plotly.
 
 ## Features
 
-- Add an expense with description, amount in SEK, category, and date
-- Add income records using the Income category
-- Save expenses in a local SQLite database
+- Add Expense, Income, and Transfer transactions from one page
+- Record income sources separately from expense categories
+- Move money to savings without counting it as spending
+- Save transactions in a local SQLite database
 - Save monthly budgets by category in the local SQLite database
-- View an overview dashboard with expense, income, and remaining budget charts
-- View all saved expenses in a table
-- Filter expenses by month and category
-- Delete an expense
-- View total spending, number of expenses, and monthly budget usage
+- View a period-aligned overview dashboard with expense, income, and budget charts
+- View all saved transactions in a table
+- Filter transactions by month, type, and category
+- Delete a transaction
+- View expense-only spending totals and monthly budget usage
 - View spending totals by category
 - View a bar chart of spending by category
 - View an Expense by Category page with a donut chart and category summary
@@ -68,7 +69,7 @@ local URL shown in the terminal.
 Run the tests:
 
 ```bash
-pytest tests
+python -m pytest tests
 ```
 
 ## Database
@@ -83,8 +84,8 @@ student_budget.db
 
 This file is ignored by Git because it is local user data.
 
-The app uses one table called `expenses` for expense records and one table
-called `budgets` for saved monthly category budgets.
+The app uses one legacy-named table called `expenses` for all transaction types
+and one table called `budgets` for saved monthly category budgets.
 
 Table fields:
 
@@ -92,12 +93,16 @@ Table fields:
 - `description`
 - `amount`
 - `category`
+- `transaction_type`
+- `from_account`
+- `to_account`
 - `expense_date`
 - `created_at`
 
 Budget fields:
 
 - `id`
+- `year_month`
 - `category`
 - `amount`
 - `created_at`
@@ -109,8 +114,17 @@ Dates are stored as text in ISO format:
 YYYY-MM-DD
 ```
 
+Budget periods are stored as `YYYY-MM`. A category can have a separate budget
+for each month. Existing category-only budgets are preserved and assigned to
+the current month when the database schema is upgraded.
+
 SQL queries use parameters, such as `?`, instead of directly inserting user
 input into SQL strings.
+
+Legacy rows are upgraded automatically: rows in the old Income category become
+Income transactions, and all other rows become Expense transactions. Transfers
+are stored with source and destination accounts and are excluded from spending,
+income, and budget calculations.
 
 ## File Responsibilities
 
@@ -121,8 +135,8 @@ keeps `streamlit run app.py` as the local run command.
 
 `database.py`
 
-This file contains the SQLite functions. It creates the table, adds expenses,
-reads expenses, deletes expenses, saves budgets, and reads budgets.
+This file contains the SQLite functions. It migrates and stores transactions,
+deletes transactions, saves monthly budgets, and reads both datasets.
 
 `analytics.py`
 
@@ -137,13 +151,13 @@ year, and category filters, a donut chart, and a category summary table.
 
 `pages/overview.py`
 
-This file contains the first dashboard page. It displays filters and pie charts
-for expenses by category, income sources, and remaining budget by category.
+This file contains the first dashboard page. It displays period-aligned expense,
+income, and signed category-budget charts.
 
 `pages/add_expense.py`
 
-This file contains the form for adding expense and income records. It also lets
-the user view, filter, and delete saved records.
+This file contains the unified Expense, Income, and Transfer form. It also lets
+the user view, filter, and delete saved transactions.
 
 `pages/set_budget.py`
 
@@ -160,21 +174,21 @@ This file lists the external Python packages needed to run the app.
 
 Creates the `expenses` table if it does not already exist.
 
-`add_expense(description, amount, category, expense_date)`
+`add_transaction(...)`
 
-Saves one expense in the database.
+Saves an Expense, Income, or Transfer transaction in the database.
 
 `get_all_expenses()`
 
-Reads all expenses from the database and returns them as a pandas DataFrame.
+Reads all transactions from the database and returns them as a pandas DataFrame.
 
-`delete_expense(expense_id)`
+`delete_transaction(transaction_id)`
 
-Deletes one expense using its unique ID.
+Deletes one transaction using its unique ID.
 
-`validate_expense(description, amount, category, expense_date)`
+`validate_transaction(...)`
 
-Checks the form values before saving and returns a list of error messages.
+Checks the type-specific form values before saving.
 
 `calculate_total_spending(expenses)`
 
@@ -190,23 +204,23 @@ Groups expenses by category and calculates the total spending per category.
 
 `calculate_expense_category_summary(expenses)`
 
-Groups spending by category while excluding Income rows.
+Groups spending by category while excluding Income and Transfer rows.
 
 `calculate_income_summary(expenses)`
 
-Groups Income rows by description so income sources can be shown in a pie chart.
+Groups Income transactions by source for chart display.
 
-`get_filtered_expenses(year, month, category)`
+`get_filtered_expenses(year, month, category, transaction_type)`
 
-Reads expenses from SQLite using optional year, month, and category filters.
+Reads transactions using optional period, category, and type filters.
 
-`save_budget(category, amount)`
+`save_budget(category, amount, year_month)`
 
-Saves or updates the monthly budget for one category.
+Saves or updates one category budget for a specific month.
 
-`get_budgets()`
+`get_budgets(year_month)`
 
-Reads saved category budgets from SQLite.
+Reads saved category budgets from SQLite, optionally filtered by month.
 
 `calculate_category_summary(expenses)`
 
@@ -232,8 +246,8 @@ budget status counts.
 
 `calculate_budget_remaining_summary(category_budget_summary)`
 
-Keeps categories with remaining budget and prepares them for the overview pie
-chart.
+Keeps both positive and negative category balances so over-budget categories
+remain visible in the overview chart.
 
 `seed_dummy_data()`
 
@@ -260,8 +274,7 @@ the same set of expenses.
 
 ## Possible Future Improvements
 
-- Add a monthly budget target
 - Export expenses to CSV
 - Add editing for existing expenses
 - Add more charts
-- Add tests for database and analytics functions
+- Add recurring transactions

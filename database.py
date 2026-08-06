@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import date
 
 import pandas as pd
 
@@ -12,7 +13,7 @@ def create_connection():
 
 
 def create_expenses_table():
-    """Create the expenses table if it does not already exist."""
+    """Create the transaction table and migrate legacy expense records."""
     connection = create_connection()
     cursor = connection.cursor()
 
@@ -23,31 +24,131 @@ def create_expenses_table():
             description TEXT NOT NULL,
             amount REAL NOT NULL,
             category TEXT NOT NULL,
+            transaction_type TEXT NOT NULL DEFAULT 'Expense',
+            from_account TEXT,
+            to_account TEXT,
             expense_date TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """
     )
 
+    cursor.execute("PRAGMA table_info(expenses)")
+    column_names = {column[1] for column in cursor.fetchall()}
+
+    if "transaction_type" not in column_names:
+        cursor.execute(
+            """
+            ALTER TABLE expenses
+            ADD COLUMN transaction_type TEXT NOT NULL DEFAULT 'Expense'
+            """
+        )
+        cursor.execute(
+            """
+            UPDATE expenses
+            SET transaction_type = 'Income'
+            WHERE category = 'Income'
+            """
+        )
+
+    if "from_account" not in column_names:
+        cursor.execute("ALTER TABLE expenses ADD COLUMN from_account TEXT")
+
+    if "to_account" not in column_names:
+        cursor.execute("ALTER TABLE expenses ADD COLUMN to_account TEXT")
+
     connection.commit()
     connection.close()
 
 
 def create_budgets_table():
-    """Create the budgets table if it does not already exist."""
+    """Create the monthly budgets table and migrate the legacy schema."""
+    connection = create_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'budgets'"
+    )
+    table_exists = cursor.fetchone() is not None
+
+    if table_exists:
+        cursor.execute("PRAGMA table_info(budgets)")
+        column_names = {column[1] for column in cursor.fetchall()}
+
+        if "year_month" not in column_names:
+            migration_month = date.today().strftime("%Y-%m")
+            cursor.execute("ALTER TABLE budgets RENAME TO budgets_legacy")
+            _create_monthly_budgets_table(cursor)
+            cursor.execute(
+                """
+                INSERT INTO budgets (
+                    id, year_month, category, amount, created_at, updated_at
+                )
+                SELECT id, ?, category, amount, created_at, updated_at
+                FROM budgets_legacy
+                """,
+                (migration_month,),
+            )
+            cursor.execute("DROP TABLE budgets_legacy")
+    else:
+        _create_monthly_budgets_table(cursor)
+
+    connection.commit()
+    connection.close()
+
+
+def _create_monthly_budgets_table(cursor):
+    """Create the current budgets schema using an existing cursor."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS budgets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            year_month TEXT NOT NULL,
+            category TEXT NOT NULL,
+            amount REAL NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(year_month, category)
+        )
+        """
+    )
+
+
+def add_transaction(
+    description,
+    amount,
+    category,
+    transaction_type,
+    expense_date,
+    from_account=None,
+    to_account=None,
+):
+    """Save an expense, income, or transfer transaction."""
     connection = create_connection()
     cursor = connection.cursor()
 
     cursor.execute(
         """
-        CREATE TABLE IF NOT EXISTS budgets (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            category TEXT NOT NULL UNIQUE,
-            amount REAL NOT NULL,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        INSERT INTO expenses (
+            description,
+            amount,
+            category,
+            transaction_type,
+            expense_date,
+            from_account,
+            to_account
         )
-        """
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            description,
+            amount,
+            category,
+            transaction_type,
+            expense_date,
+            from_account,
+            to_account,
+        ),
     )
 
     connection.commit()
@@ -55,29 +156,33 @@ def create_budgets_table():
 
 
 def add_expense(description, amount, category, expense_date):
-    """Save one expense in the expenses table."""
-    connection = create_connection()
-    cursor = connection.cursor()
-
-    cursor.execute(
-        """
-        INSERT INTO expenses (description, amount, category, expense_date)
-        VALUES (?, ?, ?, ?)
-        """,
-        (description, amount, category, expense_date),
+    """Backward-compatible wrapper for saving an expense or legacy income row."""
+    transaction_type = "Income" if category == "Income" else "Expense"
+    add_transaction(
+        description=description,
+        amount=amount,
+        category=category,
+        transaction_type=transaction_type,
+        expense_date=expense_date,
     )
-
-    connection.commit()
-    connection.close()
 
 
 def get_all_expenses():
-    """Read all saved expenses from the database."""
+    """Read all saved transactions from the database."""
     connection = create_connection()
 
     expenses = pd.read_sql_query(
         """
-        SELECT id, description, amount, category, expense_date, created_at
+        SELECT
+            id,
+            transaction_type,
+            description,
+            amount,
+            category,
+            from_account,
+            to_account,
+            expense_date,
+            created_at
         FROM expenses
         ORDER BY expense_date DESC, id DESC
         """,
@@ -88,12 +193,21 @@ def get_all_expenses():
     return expenses
 
 
-def get_filtered_expenses(year=None, month=None, category=None):
-    """Read expenses filtered by year, month, and category."""
+def get_filtered_expenses(year=None, month=None, category=None, transaction_type=None):
+    """Read transactions filtered by period, category, and type."""
     connection = create_connection()
 
     query = """
-        SELECT id, description, amount, category, expense_date, created_at
+        SELECT
+            id,
+            transaction_type,
+            description,
+            amount,
+            category,
+            from_account,
+            to_account,
+            expense_date,
+            created_at
         FROM expenses
         WHERE 1 = 1
     """
@@ -111,6 +225,10 @@ def get_filtered_expenses(year=None, month=None, category=None):
         query += " AND category = ?"
         parameters.append(category)
 
+    if transaction_type and transaction_type != "All types":
+        query += " AND transaction_type = ?"
+        parameters.append(transaction_type)
+
     query += " ORDER BY expense_date DESC, id DESC"
 
     expenses = pd.read_sql_query(query, connection, params=parameters)
@@ -119,38 +237,50 @@ def get_filtered_expenses(year=None, month=None, category=None):
     return expenses
 
 
-def save_budget(category, amount):
+def save_budget(category, amount, year_month=None):
     """Save or update a monthly budget for one category."""
+    if year_month is None:
+        year_month = date.today().strftime("%Y-%m")
+
     connection = create_connection()
     cursor = connection.cursor()
 
     cursor.execute(
         """
-        INSERT INTO budgets (category, amount)
-        VALUES (?, ?)
-        ON CONFLICT(category)
+        INSERT INTO budgets (year_month, category, amount)
+        VALUES (?, ?, ?)
+        ON CONFLICT(year_month, category)
         DO UPDATE SET
             amount = excluded.amount,
             updated_at = CURRENT_TIMESTAMP
         """,
-        (category, amount),
+        (year_month, category, amount),
     )
 
     connection.commit()
     connection.close()
 
 
-def get_budgets():
-    """Read all saved monthly budgets."""
+def get_budgets(year_month=None):
+    """Read saved budgets, optionally limited to one calendar month."""
     connection = create_connection()
 
-    budgets = pd.read_sql_query(
-        """
-        SELECT id, category, amount, created_at, updated_at
+    query = """
+        SELECT id, year_month, category, amount, created_at, updated_at
         FROM budgets
-        ORDER BY category
-        """,
+    """
+    parameters = []
+
+    if year_month:
+        query += " WHERE year_month = ?"
+        parameters.append(year_month)
+
+    query += " ORDER BY year_month DESC, category"
+
+    budgets = pd.read_sql_query(
+        query,
         connection,
+        params=parameters,
     )
 
     connection.close()
@@ -210,15 +340,28 @@ def seed_dummy_data():
             ("Demo part-time job", 3800.0, "Income", "2026-08-28"),
         ]
 
+        demo_transactions = [
+            (
+                description,
+                amount,
+                category,
+                "Income" if category == "Income" else "Expense",
+                expense_date,
+            )
+            for description, amount, category, expense_date in demo_expenses
+        ]
+
         cursor.executemany(
             """
-            INSERT INTO expenses (description, amount, category, expense_date)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO expenses (
+                description, amount, category, transaction_type, expense_date
+            )
+            VALUES (?, ?, ?, ?, ?)
             """,
-            demo_expenses,
+            demo_transactions,
         )
 
-    demo_budgets = [
+    demo_budget_amounts = [
         ("Housing", 6000.0),
         ("Groceries", 2200.0),
         ("Transport", 900.0),
@@ -229,12 +372,17 @@ def seed_dummy_data():
         ("Relocation", 1500.0),
         ("Other", 700.0),
     ]
+    demo_budgets = [
+        (f"2026-{month:02d}", category, amount)
+        for month in range(1, 9)
+        for category, amount in demo_budget_amounts
+    ]
 
     cursor.executemany(
         """
-        INSERT INTO budgets (category, amount)
-        VALUES (?, ?)
-        ON CONFLICT(category)
+        INSERT INTO budgets (year_month, category, amount)
+        VALUES (?, ?, ?)
+        ON CONFLICT(year_month, category)
         DO UPDATE SET
             amount = excluded.amount,
             updated_at = CURRENT_TIMESTAMP
@@ -264,6 +412,11 @@ def delete_expense(expense_id):
     connection.close()
 
     return deleted_rows
+
+
+def delete_transaction(transaction_id):
+    """Delete one transaction by its id."""
+    return delete_expense(transaction_id)
 
 
 if __name__ == "__main__":

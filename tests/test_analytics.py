@@ -4,11 +4,15 @@ from datetime import date
 import pandas as pd
 
 from analytics import (
+    calculate_budget_remaining_summary,
     calculate_category_budget_summary,
     calculate_budget_overview,
     calculate_budget_status,
+    calculate_income_summary,
     calculate_monthly_spending,
     calculate_saved_budget_overview,
+    calculate_total_spending,
+    calculate_transfer_summary,
 )
 
 
@@ -32,6 +36,26 @@ class BudgetAnalyticsTests(unittest.TestCase):
         result = calculate_monthly_spending(expenses, date(2026, 8, 20))
 
         self.assertEqual(result, 0.0)
+
+    def test_calculate_monthly_spending_excludes_income(self):
+        expenses = pd.DataFrame(
+            [
+                {
+                    "amount": 300.0,
+                    "category": "Groceries",
+                    "expense_date": "2026-08-01",
+                },
+                {
+                    "amount": 12000.0,
+                    "category": "Income",
+                    "expense_date": "2026-08-02",
+                },
+            ]
+        )
+
+        result = calculate_monthly_spending(expenses, date(2026, 8, 20))
+
+        self.assertEqual(result, 300.0)
 
     def test_calculate_budget_status_on_track(self):
         self.assertEqual(calculate_budget_status(79.9), "On track")
@@ -116,6 +140,80 @@ class BudgetAnalyticsTests(unittest.TestCase):
         self.assertEqual(result["on_track_count"], 1)
         self.assertEqual(result["over_budget_count"], 1)
         self.assertEqual(result["status"], "Over budget")
+
+    def test_budget_balance_summary_keeps_over_budget_categories(self):
+        category_budget_summary = pd.DataFrame(
+            [
+                {
+                    "category": "Groceries",
+                    "remaining": 200.0,
+                    "status": "On track",
+                },
+                {
+                    "category": "Transport",
+                    "remaining": -150.0,
+                    "status": "Over budget",
+                },
+            ]
+        )
+
+        result = calculate_budget_remaining_summary(category_budget_summary)
+
+        self.assertEqual(len(result), 2)
+        transport = result[result["category"] == "Transport"].iloc[0]
+        self.assertEqual(transport["remaining"], -150.0)
+        self.assertEqual(transport["status"], "Over budget")
+
+    def test_transfers_are_separate_from_expenses_and_income(self):
+        transactions = pd.DataFrame(
+            [
+                {
+                    "id": 1,
+                    "transaction_type": "Expense",
+                    "category": "Groceries",
+                    "description": "Food",
+                    "amount": 300.0,
+                    "to_account": None,
+                    "expense_date": "2026-08-01",
+                },
+                {
+                    "id": 2,
+                    "transaction_type": "Income",
+                    "category": "CSN",
+                    "description": "August CSN",
+                    "amount": 12000.0,
+                    "to_account": None,
+                    "expense_date": "2026-08-25",
+                },
+                {
+                    "id": 3,
+                    "transaction_type": "Transfer",
+                    "category": "Transfer",
+                    "description": "Emergency fund",
+                    "amount": 1500.0,
+                    "to_account": "Savings account",
+                    "expense_date": "2026-08-15",
+                },
+            ]
+        )
+
+        self.assertEqual(calculate_total_spending(transactions), 300.0)
+
+        income = calculate_income_summary(transactions)
+        self.assertEqual(income["amount"].sum(), 12000.0)
+        self.assertEqual(income.iloc[0]["source"], "CSN")
+
+        transfers = calculate_transfer_summary(transactions)
+        self.assertEqual(transfers["amount"].sum(), 1500.0)
+        self.assertEqual(transfers.iloc[0]["destination"], "Savings account")
+
+        budgets = pd.DataFrame([{"category": "Groceries", "amount": 1000.0}])
+        budget_summary = calculate_category_budget_summary(
+            budgets,
+            transactions,
+            date(2026, 8, 20),
+        )
+        self.assertEqual(budget_summary.iloc[0]["spent"], 300.0)
 
 
 if __name__ == "__main__":
