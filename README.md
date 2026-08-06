@@ -16,6 +16,38 @@ not save transactions yet, and the dashboard displays placeholder values. Your
 job is to implement one small feature at a time, use AI to help you understand
 the code, and verify every change.
 
+## Clone the Starter Repository
+
+Install Git before continuing, then open a terminal in the folder where you
+want to keep the project.
+
+Clone only the history-free beginner branch:
+
+```bash
+git clone --branch beginner-starter --single-branch https://github.com/Annika-wyt/student-budget-tracker.git
+```
+
+Move into the downloaded project directory:
+
+```bash
+cd student-budget-tracker
+```
+
+Confirm that you are using the starter branch:
+
+```bash
+git branch --show-current
+```
+
+The command should print:
+
+```text
+beginner-starter
+```
+
+Using `--single-branch` downloads only the beginner starter branch. Students do
+not need the completed application branches to follow this guide.
+
 ## What You Will Learn
 
 By completing the project, you will practice:
