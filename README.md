@@ -5,6 +5,9 @@ expenses and understand where their money goes.
 
 The app is built with Python, Streamlit, SQLite, pandas, and Plotly.
 
+See [Product and UI Recommendations](docs/PRODUCT_AND_UI_RECOMMENDATIONS.md)
+for the prioritized product roadmap and suggested interface improvements.
+
 ## Features
 
 - Add Expense, Income, and Transfer transactions from one page
