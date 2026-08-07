@@ -1,7 +1,7 @@
 import streamlit as st
 
 
-st.set_page_config(page_title="Student Budget Tracker")
+st.set_page_config(page_title="Student Budget Tracker", layout="wide")
 
 pages = [
     st.Page("pages/overview.py", title="Overview"),
