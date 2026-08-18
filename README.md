@@ -21,10 +21,14 @@ the code, and verify every change.
 Install Git before continuing, then open a terminal in the folder where you
 want to keep the project.
 
-Clone only the history-free beginner branch:
+Choose the branch you want to start from, then clone only that branch.
+
+### Option 1: Basic starter
+
+Clone only the basic starter branch:
 
 ```bash
-git clone --branch beginner-starter --single-branch https://github.com/Annika-wyt/student-budget-tracker.git
+git clone --branch option-1-basic --single-branch https://github.com/Annika-wyt/student-budget-tracker.git
 ```
 
 Move into the downloaded project directory:
@@ -33,7 +37,7 @@ Move into the downloaded project directory:
 cd student-budget-tracker
 ```
 
-Confirm that you are using the starter branch:
+Confirm that you are using the basic starter branch:
 
 ```bash
 git branch --show-current
@@ -42,11 +46,37 @@ git branch --show-current
 The command should print:
 
 ```text
-beginner-starter
+option-1-basic
 ```
 
-Using `--single-branch` downloads only the beginner starter branch. Students do
-not need the completed application branches to follow this guide.
+### Option 2: Multi-tab MVP
+
+Clone only the multi-tab MVP branch:
+
+```bash
+git clone --branch option-2-mvp --single-branch https://github.com/Annika-wyt/student-budget-tracker.git
+```
+
+Move into the downloaded project directory:
+
+```bash
+cd student-budget-tracker
+```
+
+Confirm that you are using the multi-tab MVP branch:
+
+```bash
+git branch --show-current
+```
+
+The command should print:
+
+```text
+option-2-mvp
+```
+
+Using `--single-branch` downloads only the selected starter branch. Students do
+not need the other branch options to follow this guide.
 
 ## What You Will Learn
 
