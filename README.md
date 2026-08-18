@@ -44,6 +44,39 @@ student-budget-tracker/
 └── .gitignore
 ```
 
+## Get This Branch From GitHub
+
+If you have not downloaded the project yet, clone only the multi-tab MVP
+branch:
+
+```bash
+git clone --branch option-2-mvp --single-branch https://github.com/Annika-wyt/student-budget-tracker.git
+cd student-budget-tracker
+```
+
+If you already cloned the repository, download the latest branch information
+and switch to this branch:
+
+```bash
+git fetch origin
+git switch option-2-mvp
+git pull origin option-2-mvp
+```
+
+If Git says the branch does not exist locally, create it from the GitHub branch:
+
+```bash
+git switch --track origin/option-2-mvp
+```
+
+Confirm that you are on the correct branch:
+
+```bash
+git branch --show-current
+```
+
+The command should print `option-2-mvp`.
+
 ## How To Run The App
 
 From inside the `student-budget-tracker` folder, create and activate a virtual
